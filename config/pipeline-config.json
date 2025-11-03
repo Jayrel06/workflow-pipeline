@@ -1,0 +1,184 @@
+{
+  "pipeline": {
+    "name": "Multi-AI Workflow Validation Pipeline",
+    "version": "1.0.0",
+    "description": "Validates n8n workflows through multiple AI stages with automated gates"
+  },
+  "stages": {
+    "stage_1": {
+      "name": "Claude Desktop - Architecture",
+      "ai": "Claude Desktop",
+      "required": true,
+      "outputs": [
+        "architecture.md",
+        "implementation-guide.md",
+        "test-specs.md"
+      ]
+    },
+    "gate_1": {
+      "name": "Specification Validation",
+      "required": true,
+      "checks": [
+        "file_existence",
+        "architecture_completeness",
+        "node_specifications",
+        "error_handling",
+        "security_considerations"
+      ]
+    },
+    "stage_2": {
+      "name": "Claude Code - Implementation",
+      "ai": "Claude Code",
+      "required": true,
+      "outputs": [
+        "workflow.json",
+        "test-payloads.json",
+        "implementation-notes.md"
+      ]
+    },
+    "gate_2": {
+      "name": "Structure & Security Validation",
+      "required": true,
+      "checks": [
+        "json_validity",
+        "node_structure",
+        "connection_validity",
+        "security_scan",
+        "credential_check"
+      ]
+    },
+    "stage_3": {
+      "name": "Codex - Optimization",
+      "ai": "Codex",
+      "required": false,
+      "outputs": [
+        "optimization-report.md",
+        "optimized.json",
+        "refinements.md"
+      ]
+    },
+    "gate_3": {
+      "name": "Quality & Performance Validation",
+      "required": false,
+      "checks": [
+        "code_quality",
+        "performance_analysis",
+        "redundancy_check",
+        "optimization_validation"
+      ]
+    },
+    "stage_4": {
+      "name": "Copilot - Final Review",
+      "ai": "Copilot",
+      "required": false,
+      "outputs": [
+        "final-review.md",
+        "final.json",
+        "production-package/"
+      ]
+    },
+    "gate_4": {
+      "name": "Integration Test",
+      "required": false,
+      "checks": [
+        "n8n_import_test",
+        "execution_test",
+        "integration_validation",
+        "documentation_completeness"
+      ]
+    }
+  },
+  "validation_rules": {
+    "architecture": {
+      "required_sections": [
+        "Executive Summary",
+        "System Overview",
+        "n8n Node Architecture",
+        "Data Flow Specification",
+        "Connection Map",
+        "Error Handling Strategy",
+        "Security Architecture",
+        "Performance Considerations",
+        "Environment Variables Needed",
+        "Test Strategy",
+        "Assumptions & Constraints",
+        "Alternative Approaches Considered"
+      ]
+    },
+    "implementation": {
+      "required_fields_per_node": [
+        "id",
+        "name",
+        "type",
+        "typeVersion",
+        "position",
+        "parameters"
+      ],
+      "forbidden_patterns": [
+        "hardcoded_api_keys",
+        "hardcoded_passwords",
+        "hardcoded_tokens"
+      ]
+    },
+    "security": {
+      "require_env_variables": true,
+      "scan_for_credentials": true,
+      "check_error_messages": true
+    }
+  },
+  "error_severity_levels": {
+    "critical": {
+      "description": "Blocks progression to next stage",
+      "examples": [
+        "Missing required file",
+        "Invalid JSON syntax",
+        "Hardcoded credentials",
+        "Missing required architecture section"
+      ]
+    },
+    "high": {
+      "description": "Should be fixed before production",
+      "examples": [
+        "Incomplete error handling",
+        "Missing test case",
+        "Unclear specification"
+      ]
+    },
+    "medium": {
+      "description": "Recommended to fix",
+      "examples": [
+        "Suboptimal node placement",
+        "Missing documentation",
+        "Performance concerns"
+      ]
+    },
+    "low": {
+      "description": "Optional improvement",
+      "examples": [
+        "Code style",
+        "Naming conventions",
+        "Minor optimizations"
+      ]
+    }
+  },
+  "n8n": {
+    "supported_versions": ["0.x", "1.x"],
+    "common_node_types": [
+      "n8n-nodes-base.webhook",
+      "n8n-nodes-base.if",
+      "n8n-nodes-base.set",
+      "n8n-nodes-base.function",
+      "n8n-nodes-base.httpRequest",
+      "n8n-nodes-base.respondToWebhook"
+    ]
+  },
+  "workflow_defaults": {
+    "settings": {
+      "executionOrder": "v1"
+    },
+    "node_spacing": {
+      "x": 250,
+      "y": 80
+    }
+  }
+}

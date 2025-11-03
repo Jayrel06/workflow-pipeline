@@ -1,0 +1,91 @@
+# Environment variables
+.env
+*.env
+!.env.example
+
+# n8n data
+.n8n/
+n8n-data/
+
+# API keys and credentials
+**/api-keys.*
+**/credentials.*
+**/*-secret.*
+**/*.key
+**/*.pem
+
+# Logs
+*.log
+logs/
+*.log.*
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.sublime-project
+.sublime-workspace
+
+# Temp files
+tmp/
+temp/
+*.tmp
+*.temp
+
+# Node modules
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Build outputs
+dist/
+build/
+*.bundle.js
+
+# Reports (keep structure, ignore specific reports if desired)
+# Uncomment to ignore all reports:
+# **/*-report.md
+
+# Keep these directories but ignore their contents (if desired)
+# 01-stage-1-claude-desktop/output/*
+# !01-stage-1-claude-desktop/output/.gitkeep
+# 03-stage-2-claude-code/output/*
+# !03-stage-2-claude-code/output/.gitkeep
+
+# Test data with sensitive info
+**/test-data-production.*
+**/production-payloads.*
+
+# Backup files
+*.bak
+*.backup
+*~
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.Python
+
+# macOS
+.AppleDouble
+.LSOverride
+Icon
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Linux
+.directory
+.Trash-*
