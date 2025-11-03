@@ -14,10 +14,17 @@ echo "=========================================="
 echo ""
 
 STAGE2_DIR="03-stage-2-claude-code/output"
+WORKFLOW_FILE="${STAGE2_DIR}/${WORKFLOW_NAME}.json"
 REPORT_FILE="04-gate-2-structure-security/reports/${WORKFLOW_NAME}-gate-2-report.md"
 
 mkdir -p "04-gate-2-structure-security/reports"
 
+if [ ! -f "$WORKFLOW_FILE" ]; then
+    echo "❌ Error: Workflow file not found: $WORKFLOW_FILE"
+    exit 1
+fi
+
+# Initialize report
 cat > "$REPORT_FILE" << EOF
 # Gate 2 Validation Report
 **Workflow**: $WORKFLOW_NAME
@@ -31,57 +38,54 @@ EOF
 ERRORS=0
 WARNINGS=0
 
-# Check 1: Required files exist
-echo "✓ Checking required files..."
-REQUIRED_FILES=(
-    "${STAGE2_DIR}/${WORKFLOW_NAME}.json"
-    "${STAGE2_DIR}/${WORKFLOW_NAME}-test-payloads.json"
-    "${STAGE2_DIR}/${WORKFLOW_NAME}-implementation-notes.md"
-)
-
-for file in "${REQUIRED_FILES[@]}"; do
-    if [ ! -f "$file" ]; then
-        echo "❌ Missing: $file"
-        echo "- ❌ **CRITICAL**: Missing $file" >> "$REPORT_FILE"
-        ERRORS=$((ERRORS + 1))
-    else
-        echo "   ✓ Found: $file"
-    fi
-done
-
-# Check 2: Valid JSON syntax
-echo ""
+# Check 1: Valid JSON syntax
 echo "✓ Validating JSON syntax..."
-WORKFLOW_FILE="${STAGE2_DIR}/${WORKFLOW_NAME}.json"
+if command -v node &> /dev/null; then
+    if node -e "JSON.parse(require('fs').readFileSync('$WORKFLOW_FILE', 'utf8'))" 2>/dev/null; then
+        echo "   ✓ Valid JSON syntax"
+        echo "- ✅ JSON syntax valid" >> "$REPORT_FILE"
+    else
+        echo "   ❌ Invalid JSON syntax"
+        echo "- ❌ **CRITICAL**: Invalid JSON syntax" >> "$REPORT_FILE"
+        ERRORS=$((ERRORS + 1))
+    fi
 
-if [ -f "$WORKFLOW_FILE" ]; then
-    if command -v node &> /dev/null; then
-        if node -e "JSON.parse(require('fs').readFileSync('$WORKFLOW_FILE', 'utf8'))" 2>/dev/null; then
-            echo "   ✓ Valid JSON syntax"
-        else
-            echo "   ❌ Invalid JSON syntax"
-            echo "- ❌ **CRITICAL**: Invalid JSON syntax in workflow file" >> "$REPORT_FILE"
+    # Check 2: Run JSON structure validator
+    if [ -f "04-gate-2-structure-security/validators/json-structure.js" ]; then
+        echo ""
+        echo "✓ Running JSON structure validation..."
+        node 04-gate-2-structure-security/validators/json-structure.js "$WORKFLOW_FILE" >> "$REPORT_FILE" 2>&1
+        JSON_EXIT=$?
+        if [ $JSON_EXIT -ne 0 ]; then
             ERRORS=$((ERRORS + 1))
         fi
-    else
-        echo "   ⚠ Node.js not found - cannot validate JSON"
-        WARNINGS=$((WARNINGS + 1))
     fi
+
+    # Check 3: Run security scanner
+    if [ -f "04-gate-2-structure-security/validators/security-scanner.js" ]; then
+        echo ""
+        echo "✓ Running security scan..."
+        node 04-gate-2-structure-security/validators/security-scanner.js "$WORKFLOW_FILE" >> "$REPORT_FILE" 2>&1
+        SEC_EXIT=$?
+        if [ $SEC_EXIT -ne 0 ]; then
+            ERRORS=$((ERRORS + 1))
+        fi
+    fi
+else
+    echo "   ⚠ Node.js not found - cannot validate JSON"
+    echo "- ⚠ **WARNING**: Node.js not available for validation" >> "$REPORT_FILE"
+    WARNINGS=$((WARNINGS + 1))
 fi
 
-# Check 3: Security scan for hardcoded credentials
+# Check 4: Basic security scan (even without Node.js)
 echo ""
-echo "✓ Scanning for hardcoded credentials..."
-
-if [ -f "$WORKFLOW_FILE" ]; then
-    # Check for common credential patterns
-    if grep -iE "(api[_-]?key|password|secret|token).*:.*[\"'][a-zA-Z0-9]{10,}" "$WORKFLOW_FILE" > /dev/null; then
-        echo "   ⚠ Possible hardcoded credentials detected"
-        echo "- ⚠ **WARNING**: Possible hardcoded credentials - verify all use environment variables" >> "$REPORT_FILE"
-        WARNINGS=$((WARNINGS + 1))
-    else
-        echo "   ✓ No obvious hardcoded credentials"
-    fi
+echo "✓ Scanning for obvious hardcoded credentials..."
+if grep -iE "(api[_-]?key|password|secret|token).*:.*[\"'][a-zA-Z0-9]{10,}" "$WORKFLOW_FILE" > /dev/null; then
+    echo "   ⚠ Possible hardcoded credentials detected"
+    echo "- ⚠ **WARNING**: Possible hardcoded credentials - verify all use environment variables" >> "$REPORT_FILE"
+    WARNINGS=$((WARNINGS + 1))
+else
+    echo "   ✓ No obvious hardcoded credentials"
 fi
 
 # Final report
@@ -106,9 +110,8 @@ if [ $ERRORS -eq 0 ]; then
     echo "✅ Gate 2 PASSED"
     echo "=========================================="
     echo ""
-    echo "Next step: Run Stage 3 (Codex)"
-    echo "  cd 05-stage-3-codex"
-    echo "  # Use prompts/refinement-prompt.md with Codex"
+    echo "Next step: Stage 3 (Codex/Copilot Optimization)"
+    echo "  See: 05-stage-3-codex/README.md"
     exit 0
 else
     echo "**Status**: ❌ FAILED" >> "$REPORT_FILE"
