@@ -1,0 +1,183 @@
+{
+  "name": "PT Google Maps Contact Scraper",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "manual-trigger",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {"id": "city", "name": "city", "value": "Phoenix", "type": "string"},
+            {"id": "state", "name": "state", "value": "AZ", "type": "string"},
+            {"id": "limit", "name": "limit", "value": 20, "type": "number"}
+          ]
+        }
+      },
+      "id": "config-params",
+      "name": "Config: Search Params",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Simplified version: Just demonstrate the workflow structure\n// In production, this would call Kapture MCP via HTTP\n\n// Simulate getting clinic data from Google Maps\nconst city = $json.city;\nconst state = $json.state;\nconst limit = $json.limit;\n\n// Mock clinic data for demonstration\nconst mockClinics = [\n  { name: city + ' Physical Therapy', phone: '(555) 100-0001', address: '123 Main St' },\n  { name: city + ' Sports PT', phone: '(555) 100-0002', address: '456 Oak Ave' },\n  { name: city + ' Rehab Center', phone: null, address: '789 Pine Rd' }\n].slice(0, limit);\n\nreturn mockClinics.map(c => ({\n  json: {\n    clinic_name: c.name,\n    phone: c.phone,\n    website: 'https://example.com',\n    address: c.address,\n    city: city,\n    state: state,\n    business_type: 'Physical Therapy',\n    rating: 4.5,\n    review_count: 50\n  }\n}));\n\n// NOTE: Replace this with actual Kapture MCP calls in production"
+      },
+      "id": "mock-scraper",
+      "name": "Mock: Scrape Clinics",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const ptKeywords = ['physical therapy', 'pt', 'physiotherapy', 'rehabilitation', 'sports medicine'];\nconst excludeKeywords = ['chiropractic', 'massage', 'acupuncture'];\n\nconst name = ($json.clinic_name || '').toLowerCase();\n\nconst isPT = ptKeywords.some(kw => name.includes(kw));\nconst isExcluded = excludeKeywords.some(kw => name.includes(kw));\n\nif (isPT && !isExcluded) {\n  return { json: $json };\n}\nreturn null;"
+      },
+      "id": "filter-pt-only",
+      "name": "Filter: PT Only",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [850, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=SELECT id FROM clinics_contact_info WHERE phone = '{{ $json.phone }}' LIMIT 1"
+      },
+      "id": "check-duplicate",
+      "name": "DB: Check Duplicate",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1050, 300],
+      "credentials": {"postgres": {"id": "postgres-account", "name": "Postgres PT Clinic Intel"}}
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "conditions": [
+            {"leftValue": "={{ $json.id }}", "rightValue": "", "operator": {"type": "any", "operation": "notEmpty"}}
+          ]
+        }
+      },
+      "id": "branch-duplicate",
+      "name": "IF: Is Duplicate?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1250, 300]
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "schema": {"__rl": true, "value": "public", "mode": "list"},
+        "table": {"__rl": true, "value": "clinics_contact_info", "mode": "list"},
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "clinic_name": "={{ $node[\"Filter: PT Only\"].json.clinic_name }}",
+            "phone": "={{ $node[\"Filter: PT Only\"].json.phone }}",
+            "website": "={{ $node[\"Filter: PT Only\"].json.website }}",
+            "address": "={{ $node[\"Filter: PT Only\"].json.address }}",
+            "city": "={{ $node[\"Filter: PT Only\"].json.city }}",
+            "state": "={{ $node[\"Filter: PT Only\"].json.state }}",
+            "business_type": "={{ $node[\"Filter: PT Only\"].json.business_type }}",
+            "rating": "={{ $node[\"Filter: PT Only\"].json.rating }}",
+            "review_count": "={{ $node[\"Filter: PT Only\"].json.review_count }}"
+          }
+        }
+      },
+      "id": "insert-clinic",
+      "name": "DB: INSERT Clinic",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1450, 200],
+      "credentials": {"postgres": {"id": "postgres-account", "name": "Postgres PT Clinic Intel"}}
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [{"id": "op", "name": "operation", "value": "insert", "type": "string"}]
+        },
+        "options": {"includeOtherFields": true}
+      },
+      "id": "tag-insert",
+      "name": "Tag: INSERT",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1650, 200]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [{"id": "op", "name": "operation", "value": "skip", "type": "string"}]
+        },
+        "options": {"includeOtherFields": true}
+      },
+      "id": "tag-skip",
+      "name": "Tag: SKIP",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1650, 400]
+    },
+    {
+      "parameters": {"mode": "combine", "combinationMode": "mergeByPosition"},
+      "id": "merge-results",
+      "name": "Merge Results",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [1850, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const allResults = $input.all();\nconst inserts = allResults.filter(r => r.json.operation === 'insert');\nconst skips = allResults.filter(r => r.json.operation === 'skip');\n\nconst city = $node[\"Config: Search Params\"].json.city;\nconst state = $node[\"Config: Search Params\"].json.state;\n\nconst report = '📍 **Google Maps Scraping Report**\\n\\n' +\n  '**City**: ' + city + ', ' + state + '\\n' +\n  '**New Clinics Added**: ' + inserts.length + '\\n' +\n  '**Duplicates Skipped**: ' + skips.length + '\\n';\n\nreturn [{ json: { report, stats: { inserts: inserts.length, skips: skips.length } } }];"
+      },
+      "id": "generate-report",
+      "name": "Generate Report",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2050, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SLACK_WEBHOOK_URL }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={ \"text\": $json.report, \"channel\": \"#pt-intelligence\" }",
+        "options": {}
+      },
+      "id": "slack-notification",
+      "name": "Slack: Send Summary",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2250, 300]
+    }
+  ],
+  "connections": {
+    "manual-trigger": {"main": [[{"node": "config-params", "type": "main", "index": 0}]]},
+    "config-params": {"main": [[{"node": "mock-scraper", "type": "main", "index": 0}]]},
+    "mock-scraper": {"main": [[{"node": "filter-pt-only", "type": "main", "index": 0}]]},
+    "filter-pt-only": {"main": [[{"node": "check-duplicate", "type": "main", "index": 0}]]},
+    "check-duplicate": {"main": [[{"node": "branch-duplicate", "type": "main", "index": 0}]]},
+    "branch-duplicate": {"main": [[{"node": "tag-skip", "type": "main", "index": 0}], [{"node": "insert-clinic", "type": "main", "index": 0}]]},
+    "insert-clinic": {"main": [[{"node": "tag-insert", "type": "main", "index": 0}]]},
+    "tag-insert": {"main": [[{"node": "merge-results", "type": "main", "index": 0}]]},
+    "tag-skip": {"main": [[{"node": "merge-results", "type": "main", "index": 1}]]},
+    "merge-results": {"main": [[{"node": "generate-report", "type": "main", "index": 0}]]},
+    "generate-report": {"main": [[{"node": "slack-notification", "type": "main", "index": 0}]]}
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "timezone": "America/New_York"
+  },
+  "tags": [],
+  "triggerCount": 0,
+  "updatedAt": "2025-11-11T23:30:00.000Z",
+  "versionId": "1"
+}

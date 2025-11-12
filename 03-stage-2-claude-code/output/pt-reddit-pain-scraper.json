@@ -1,0 +1,641 @@
+{
+  "name": "PT Reddit Pain Scraper",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 2 * * *"
+            }
+          ]
+        },
+        "timezone": "America/New_York"
+      },
+      "id": "schedule-trigger",
+      "name": "Daily Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        250,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "subreddits",
+              "name": "subreddits",
+              "value": "=[\"physicaltherapy\", \"PrivatePractice\", \"smallbusiness\"]",
+              "type": "array"
+            },
+            {
+              "id": "limit",
+              "name": "limit",
+              "value": 50,
+              "type": "number"
+            },
+            {
+              "id": "timeFilter",
+              "name": "timeFilter",
+              "value": "day",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "id": "config-subreddits",
+      "name": "Config: Subreddits",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        450,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "subreddits"
+      },
+      "id": "split-subreddits",
+      "name": "Loop: Each Subreddit",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        650,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const config = $node[\"Config: Subreddits\"].json;\nconst subreddit = $json.subreddits;\n\nreturn {\n  json: {\n    subreddit: subreddit,\n    limit: config.limit,\n    timeFilter: config.timeFilter\n  }\n};"
+      },
+      "id": "get-current-subreddit",
+      "name": "Get Current Subreddit",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        850,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "amount": 2,
+        "unit": "seconds"
+      },
+      "id": "wait-rate-limit",
+      "name": "Wait 2s (Rate Limit)",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1050,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://www.reddit.com/r/{{ $json.subreddit }}/new.json?limit={{ $json.limit }}&t={{ $json.timeFilter }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "PT-Intelligence-Bot/1.0"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000,
+          "retry": {
+            "enabled": true,
+            "maxTries": 3,
+            "waitBetweenTries": 5000
+          }
+        }
+      },
+      "id": "fetch-reddit-posts",
+      "name": "GET Reddit Posts",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1250,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const subreddit = $input.first().json.subreddit;\nconst response = $input.first().json;\n\nif (!response.data || !response.data.children || response.data.children.length === 0) {\n  return [];\n}\n\nconst posts = response.data.children.map(child => {\n  const post = child.data;\n  return {\n    subreddit: subreddit,\n    title: post.title || '',\n    selftext: post.selftext || '',\n    url: 'https://www.reddit.com' + post.permalink,\n    created_date: new Date((post.created_utc || 0) * 1000).toISOString()\n  };\n});\n\nreturn posts.map(post => ({ json: post }));"
+      },
+      "id": "parse-reddit-response",
+      "name": "Parse Posts",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1450,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const allKeywords = ['emr', 'ehr', 'billing', 'insurance', 'scheduling', 'appointment', 'marketing', 'pricing', 'cash-based', 'workflow', 'efficiency', 'staffing', 'hiring'];\nconst ownerKeywords = ['owner', 'director', 'clinic', 'practice', 'my pt', 'our clinic', 'private practice'];\nconst helpKeywords = ['?', 'help', 'advice', 'recommend', 'struggling', 'looking for', 'need'];\n\nfunction calculateRelevance(post) {\n  const text = (post.title + ' ' + post.selftext).toLowerCase();\n  let score = 0;\n  allKeywords.forEach(kw => { if (text.includes(kw)) score += 1; });\n  ownerKeywords.forEach(kw => { if (text.includes(kw)) score += 2; });\n  helpKeywords.forEach(kw => { if (text.includes(kw)) score += 1; });\n  return score;\n}\n\nconst filtered = $input.all()\n  .map(item => {\n    const post = item.json;\n    post.relevance_score = calculateRelevance(post);\n    return { json: post };\n  })\n  .filter(item => item.json.relevance_score >= 5);\n\nreturn filtered;"
+      },
+      "id": "filter-owner-posts",
+      "name": "Filter: Owner Pain Posts",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1650,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-api-key",
+              "value": "={{ $env.CLAUDE_API_KEY }}"
+            },
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            },
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={ \"model\": \"claude-sonnet-4-5-20250929\", \"max_tokens\": 500, \"temperature\": 0.3, \"messages\": [{ \"role\": \"user\", \"content\": \"Analyze this PT clinic post. Categorize into ONE of: emr, billing, scheduling, marketing, operations, staffing. Extract pain point in 1 sentence. Rate severity 1-10. Title: \" + $json.title + \" Text: \" + $json.selftext + \" Respond ONLY with JSON: {\\\"pain_category\\\": \\\"category\\\", \\\"pain_text\\\": \\\"problem\\\", \\\"severity_score\\\": 8}\" }] }",
+        "options": {
+          "retry": {
+            "enabled": true,
+            "maxTries": 2,
+            "waitBetweenTries": 3000
+          }
+        }
+      },
+      "id": "categorize-claude",
+      "name": "AI: Categorize Pain",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1850,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const post = $json;\nconst aiResponse = post.content?.[0]?.text || JSON.stringify(post);\n\ntry {\n  const jsonMatch = aiResponse.match(/\\{[\\s\\S]*?\\}/);\n  if (jsonMatch) {\n    const parsed = JSON.parse(jsonMatch[0]);\n    const validCategories = ['emr', 'billing', 'scheduling', 'marketing', 'operations', 'staffing'];\n    return {\n      json: {\n        subreddit: post.subreddit,\n        title: post.title,\n        url: post.url,\n        pain_category: validCategories.includes(parsed.pain_category) ? parsed.pain_category : 'uncategorized',\n        pain_text: parsed.pain_text,\n        severity_score: Math.min(Math.max(parsed.severity_score, 1), 10)\n      }\n    };\n  }\n  throw new Error('No JSON in response');\n} catch (error) {\n  return {\n    json: {\n      subreddit: post.subreddit,\n      title: post.title,\n      url: post.url,\n      pain_category: 'uncategorized',\n      pain_text: post.title,\n      severity_score: 5\n    }\n  };\n}"
+      },
+      "id": "parse-claude-response",
+      "name": "Parse AI Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2050,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=SELECT id, mentions FROM pain_points WHERE example_urls @> jsonb_build_array(jsonb_build_object('url', '{{ $json.url }}')) LIMIT 1"
+      },
+      "id": "check-duplicate",
+      "name": "DB: Check Duplicate",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        2250,
+        300
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-account",
+          "name": "Postgres PT Clinic Intel"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "is-duplicate",
+              "leftValue": "={{ $json.id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "any",
+                "operation": "notEmpty"
+              }
+            }
+          ]
+        }
+      },
+      "id": "branch-duplicate",
+      "name": "IF: Is Duplicate?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        2450,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "schema": {
+          "__rl": true,
+          "value": "public",
+          "mode": "list"
+        },
+        "table": {
+          "__rl": true,
+          "value": "pain_points",
+          "mode": "list"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "source": "reddit",
+            "pain_category": "={{ $node[\"Parse AI Response\"].json.pain_category }}",
+            "pain_text": "={{ $node[\"Parse AI Response\"].json.pain_text }}",
+            "severity_score": "={{ $node[\"Parse AI Response\"].json.severity_score }}",
+            "mentions": 1,
+            "example_urls": "=[{\"url\": $node[\"Parse AI Response\"].json.url, \"subreddit\": $node[\"Parse AI Response\"].json.subreddit, \"title\": $node[\"Parse AI Response\"].json.title}]"
+          }
+        }
+      },
+      "id": "insert-new",
+      "name": "DB: INSERT New",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        2650,
+        200
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-account",
+          "name": "Postgres PT Clinic Intel"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=UPDATE pain_points SET mentions = mentions + 1, example_urls = example_urls || jsonb_build_array(jsonb_build_object('url', '{{ $node[\"Parse AI Response\"].json.url }}', 'subreddit', '{{ $node[\"Parse AI Response\"].json.subreddit }}', 'title', '{{ $node[\"Parse AI Response\"].json.title }}')) WHERE id = {{ $json.id }} RETURNING id, mentions"
+      },
+      "id": "update-existing",
+      "name": "DB: UPDATE Existing",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        2650,
+        400
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-account",
+          "name": "Postgres PT Clinic Intel"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "op",
+              "name": "operation",
+              "value": "insert",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {
+          "includeOtherFields": true
+        }
+      },
+      "id": "tag-insert",
+      "name": "Tag: INSERT",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2850,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "op",
+              "name": "operation",
+              "value": "update",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {
+          "includeOtherFields": true
+        }
+      },
+      "id": "tag-update",
+      "name": "Tag: UPDATE",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2850,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combinationMode": "mergeByPosition"
+      },
+      "id": "merge-results",
+      "name": "Merge: All DB Operations",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        3050,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const allResults = $input.all();\nconst inserts = allResults.filter(r => r.json.operation === 'insert');\nconst updates = allResults.filter(r => r.json.operation === 'update');\n\nconst byCategory = {};\nfor (const result of inserts) {\n  const cat = result.json.pain_category || 'uncategorized';\n  if (!byCategory[cat]) byCategory[cat] = { count: 0, examples: [] };\n  byCategory[cat].count++;\n  if (byCategory[cat].examples.length < 3) {\n    byCategory[cat].examples.push(result.json.pain_text || result.json.title);\n  }\n}\n\nconst today = new Date().toISOString().split('T')[0];\nlet report = '\u00f0\u0178\u201c\u0160 **Reddit Pain Point Summary - ' + today + '**\\n\\n';\nreport += '**New Pain Points**: ' + inserts.length + '\\n';\nreport += '**Updated Pain Points**: ' + updates.length + '\\n\\n';\n\nif (Object.keys(byCategory).length > 0) {\n  report += '**By Category**:\\n';\n  for (const [cat, data] of Object.entries(byCategory).sort((a, b) => b[1].count - a[1].count)) {\n    report += '\\n**' + cat.toUpperCase() + '** (' + data.count + ' new)\\n';\n    data.examples.forEach(ex => report += '\u00e2\u20ac\u00a2 ' + ex + '\\n');\n  }\n} else {\n  report += 'No new pain points discovered today.\\n';\n}\n\nreturn [{\n  json: {\n    report,\n    stats: { inserts: inserts.length, updates: updates.length, total: allResults.length, categories: Object.keys(byCategory).length },\n    date: today\n  }\n}];"
+      },
+      "id": "generate-report",
+      "name": "Generate Report",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3250,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SLACK_WEBHOOK_URL }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={ \"text\": $json.report, \"channel\": \"#pt-intelligence\" }",
+        "options": {
+          "retry": {
+            "enabled": true,
+            "maxTries": 2,
+            "waitBetweenTries": 3000
+          }
+        }
+      },
+      "id": "slack-notification",
+      "name": "Slack: Send Summary",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3450,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "schedule-trigger": {
+      "main": [
+        [
+          {
+            "node": "config-subreddits",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config-subreddits": {
+      "main": [
+        [
+          {
+            "node": "split-subreddits",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "split-subreddits": {
+      "main": [
+        [
+          {
+            "node": "get-current-subreddit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get-current-subreddit": {
+      "main": [
+        [
+          {
+            "node": "wait-rate-limit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "wait-rate-limit": {
+      "main": [
+        [
+          {
+            "node": "fetch-reddit-posts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "fetch-reddit-posts": {
+      "main": [
+        [
+          {
+            "node": "parse-reddit-response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "parse-reddit-response": {
+      "main": [
+        [
+          {
+            "node": "filter-owner-posts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "filter-owner-posts": {
+      "main": [
+        [
+          {
+            "node": "categorize-claude",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "categorize-claude": {
+      "main": [
+        [
+          {
+            "node": "parse-claude-response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "parse-claude-response": {
+      "main": [
+        [
+          {
+            "node": "check-duplicate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "check-duplicate": {
+      "main": [
+        [
+          {
+            "node": "branch-duplicate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "branch-duplicate": {
+      "main": [
+        [
+          {
+            "node": "update-existing",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "insert-new",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "insert-new": {
+      "main": [
+        [
+          {
+            "node": "tag-insert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "update-existing": {
+      "main": [
+        [
+          {
+            "node": "tag-update",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "tag-insert": {
+      "main": [
+        [
+          {
+            "node": "merge-results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "tag-update": {
+      "main": [
+        [
+          {
+            "node": "merge-results",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "merge-results": {
+      "main": [
+        [
+          {
+            "node": "generate-report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "generate-report": {
+      "main": [
+        [
+          {
+            "node": "slack-notification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "timezone": "America/New_York",
+    "saveExecutionProgress": true,
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all"
+  },
+  "tags": [],
+  "triggerCount": 1,
+  "updatedAt": "2025-11-11T23:10:00.000Z",
+  "versionId": "1"
+}

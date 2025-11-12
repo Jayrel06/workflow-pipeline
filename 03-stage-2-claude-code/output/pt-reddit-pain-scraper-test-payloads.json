@@ -1,0 +1,317 @@
+{
+  "testPayloads": [
+    {
+      "name": "Happy Path - New Pain Points",
+      "description": "Simulates Reddit API returning 3 posts with owner pain points",
+      "nodeToTest": "Parse Posts",
+      "input": {
+        "subreddit": "physicaltherapy",
+        "data": {
+          "children": [
+            {
+              "data": {
+                "title": "Looking for EMR recommendations for small PT clinic",
+                "selftext": "We're a small practice and our current EMR doesn't have good templates for PT evaluations. Any recommendations?",
+                "author": "pt_clinic_owner",
+                "score": 45,
+                "num_comments": 23,
+                "permalink": "/r/physicaltherapy/comments/test1/emr_recommendations/",
+                "created_utc": 1699747200
+              }
+            },
+            {
+              "data": {
+                "title": "Cash-based pricing strategy?",
+                "selftext": "Our clinic is transitioning to cash-based and I have no idea what to charge for evaluations. What are other private practice owners charging?",
+                "author": "private_pt_owner",
+                "score": 32,
+                "num_comments": 18,
+                "permalink": "/r/physicaltherapy/comments/test2/cash_pricing/",
+                "created_utc": 1699747300
+              }
+            },
+            {
+              "data": {
+                "title": "Insurance billing taking too long",
+                "selftext": "Anyone else spending 10+ hours per week on insurance claims? Our clinic needs a better system.",
+                "author": "clinic_director",
+                "score": 28,
+                "num_comments": 15,
+                "permalink": "/r/physicaltherapy/comments/test3/billing_issues/",
+                "created_utc": 1699747400
+              }
+            }
+          ]
+        }
+      },
+      "expectedOutput": {
+        "postCount": 3,
+        "allPainPosts": true,
+        "relevanceScoresAbove5": true
+      }
+    },
+    {
+      "name": "Filtering Test - Mixed Content",
+      "description": "Mix of owner pain posts and patient complaints (should filter out patient complaints)",
+      "nodeToTest": "Filter: Owner Pain Posts",
+      "input": [
+        {
+          "subreddit": "physicaltherapy",
+          "title": "Best EMR for sports PT clinics?",
+          "selftext": "Our sports medicine practice needs better documentation tools",
+          "url": "https://reddit.com/test1",
+          "relevance_score": 0
+        },
+        {
+          "subreddit": "physicaltherapy",
+          "title": "Long wait times at my PT clinic",
+          "selftext": "I had to wait 45 minutes for my appointment",
+          "url": "https://reddit.com/test2",
+          "relevance_score": 0
+        },
+        {
+          "subreddit": "physicaltherapy",
+          "title": "Need help with staff training",
+          "selftext": "Our clinic is hiring new PTs, any training resources for clinic owners?",
+          "url": "https://reddit.com/test3",
+          "relevance_score": 0
+        }
+      ],
+      "expectedOutput": {
+        "filteredCount": 2,
+        "excludedPatientComplaint": true,
+        "ownerPostsIncluded": true
+      }
+    },
+    {
+      "name": "Claude Categorization Test",
+      "description": "Test AI categorization with clear pain points",
+      "nodeToTest": "AI: Categorize Pain",
+      "input": [
+        {
+          "title": "EMR doesn't have PT evaluation templates",
+          "selftext": "Our documentation system is generic, doesn't understand PT workflows",
+          "url": "https://reddit.com/test-emr"
+        },
+        {
+          "title": "Insurance claims getting rejected",
+          "selftext": "We're losing thousands on rejected claims every month",
+          "url": "https://reddit.com/test-billing"
+        },
+        {
+          "title": "Scheduling software keeps double-booking",
+          "selftext": "Our clinic has had 5 double-bookings this week alone",
+          "url": "https://reddit.com/test-scheduling"
+        }
+      ],
+      "expectedCategorization": {
+        "test-emr": "emr",
+        "test-billing": "billing",
+        "test-scheduling": "scheduling"
+      }
+    },
+    {
+      "name": "Duplicate Detection Test",
+      "description": "Same post scraped twice should increment mentions, not insert new record",
+      "nodeToTest": "DB: Check Duplicate",
+      "input": {
+        "url": "https://reddit.com/r/physicaltherapy/comments/existing/emr_issues/",
+        "pain_category": "emr",
+        "pain_text": "Current EMR doesn't support PT evaluation templates"
+      },
+      "preCondition": {
+        "databaseContains": {
+          "pain_points": [
+            {
+              "pain_category": "emr",
+              "pain_text": "Current EMR doesn't support PT evaluation templates",
+              "mentions": 1,
+              "example_urls": [
+                {
+                  "url": "https://reddit.com/r/physicaltherapy/comments/existing/emr_issues/"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "expectedOutput": {
+        "operation": "update",
+        "mentions": 2,
+        "example_urls_length": 2
+      }
+    },
+    {
+      "name": "Empty Results Test",
+      "description": "No posts match filter criteria",
+      "nodeToTest": "Filter: Owner Pain Posts",
+      "input": [
+        {
+          "title": "Beautiful weather today",
+          "selftext": "Just enjoying the sunshine",
+          "url": "https://reddit.com/test-irrelevant-1"
+        },
+        {
+          "title": "What's for lunch?",
+          "selftext": "Anyone have restaurant recommendations?",
+          "url": "https://reddit.com/test-irrelevant-2"
+        }
+      ],
+      "expectedOutput": {
+        "filteredCount": 0,
+        "workflowContinues": true,
+        "noErrors": true
+      }
+    },
+    {
+      "name": "Claude API Failure Fallback",
+      "description": "Claude API returns error, should fallback gracefully",
+      "nodeToTest": "Parse AI Response",
+      "input": {
+        "title": "Need help with clinic software",
+        "content": [
+          {
+            "text": "500 Internal Server Error"
+          }
+        ]
+      },
+      "expectedOutput": {
+        "pain_category": "uncategorized",
+        "pain_text": "Need help with clinic software",
+        "severity_score": 5,
+        "ai_error": "No JSON found in Claude response"
+      }
+    },
+    {
+      "name": "Long Post Text Test",
+      "description": "Very long Reddit post (edge case)",
+      "nodeToTest": "Parse Posts",
+      "input": {
+        "subreddit": "physicaltherapy",
+        "data": {
+          "children": [
+            {
+              "data": {
+                "title": "Comprehensive review of PT clinic management challenges",
+                "selftext": "Lorem ipsum dolor sit amet, consectetur adipiscing elit. ".repeat(100),
+                "author": "clinic_owner",
+                "score": 50,
+                "num_comments": 30,
+                "permalink": "/r/physicaltherapy/comments/long/comprehensive_review/",
+                "created_utc": 1699747500
+              }
+            }
+          ]
+        }
+      },
+      "expectedOutput": {
+        "handlesLongText": true,
+        "noTruncationErrors": true
+      }
+    },
+    {
+      "name": "Multi-Subreddit Test",
+      "description": "Test processing multiple subreddits sequentially",
+      "nodeToTest": "Loop: Each Subreddit",
+      "input": {
+        "subreddits": ["physicaltherapy", "PrivatePractice", "smallbusiness"],
+        "limit": 10
+      },
+      "expectedOutput": {
+        "subredditsProcessed": 3,
+        "totalPosts": 30,
+        "rateLimit": "No 429 errors",
+        "executionTime": "<90 seconds"
+      }
+    },
+    {
+      "name": "Report Generation Test",
+      "description": "Test summary report formatting",
+      "nodeToTest": "Generate Report",
+      "input": [
+        {
+          "json": {
+            "operation": "insert",
+            "pain_category": "emr",
+            "pain_text": "EMR doesn't support PT templates"
+          }
+        },
+        {
+          "json": {
+            "operation": "insert",
+            "pain_category": "emr",
+            "pain_text": "Documentation takes too long"
+          }
+        },
+        {
+          "json": {
+            "operation": "insert",
+            "pain_category": "billing",
+            "pain_text": "Insurance claims rejected frequently"
+          }
+        },
+        {
+          "json": {
+            "operation": "update",
+            "pain_category": "scheduling",
+            "pain_text": "Double-booking issues"
+          }
+        }
+      ],
+      "expectedOutput": {
+        "stats": {
+          "inserts": 3,
+          "updates": 1,
+          "total": 4,
+          "categories": 2
+        },
+        "reportContains": [
+          "**New Pain Points**: 3",
+          "**Updated Pain Points**: 1",
+          "**EMR**",
+          "**BILLING**"
+        ]
+      }
+    },
+    {
+      "name": "Slack Notification Test",
+      "description": "Test Slack webhook formatting",
+      "nodeToTest": "Slack: Send Summary",
+      "input": {
+        "report": "📊 **Reddit Pain Point Summary - 2025-11-11**\\n\\n**New Pain Points**: 5\\n**Updated Pain Points**: 2\\n\\n**By Category**:\\n\\n**EMR** (3 new)\\n• Current EMR doesn't support PT templates\\n• Documentation takes 2+ hours per day",
+        "stats": {
+          "inserts": 5,
+          "updates": 2,
+          "total": 7,
+          "categories": 3
+        }
+      },
+      "expectedOutput": {
+        "slackMessageSent": true,
+        "channelTarget": "#pt-intelligence",
+        "messageFormatted": true
+      }
+    }
+  ],
+  "environmentVariables": {
+    "required": [
+      "POSTGRES_CONNECTION_STRING",
+      "CLAUDE_API_KEY",
+      "SLACK_WEBHOOK_URL"
+    ],
+    "testValues": {
+      "POSTGRES_CONNECTION_STRING": "postgresql://testuser:testpass@localhost:5432/pt_clinic_intel_test",
+      "CLAUDE_API_KEY": "sk-ant-test-key-for-testing-only",
+      "SLACK_WEBHOOK_URL": "https://hooks.slack.com/services/TEST/WEBHOOK/URL"
+    }
+  },
+  "databaseSetup": {
+    "beforeTests": [
+      "TRUNCATE TABLE pain_points RESTART IDENTITY;",
+      "INSERT INTO pain_points (source, pain_category, pain_text, mentions, example_urls) VALUES ('reddit', 'emr', 'Current EMR doesn't support PT evaluation templates', 1, '[{\"url\": \"https://reddit.com/r/physicaltherapy/comments/existing/emr_issues/\"}]');"
+    ],
+    "afterTests": [
+      "TRUNCATE TABLE pain_points RESTART IDENTITY;"
+    ]
+  }
+}
