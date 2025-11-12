@@ -37,6 +37,10 @@ jobs:
           echo "Base ref: ${{ github.event.pull_request.base.ref }}"
           echo "Head ref: ${{ github.head_ref }}"
 
+          # Fetch latest base branch to compare against current main
+          git fetch origin ${{ github.event.pull_request.base.ref }}
+
+          # Compare current HEAD to latest base branch
           CHANGED_FILES=$(git diff --name-only origin/${{ github.event.pull_request.base.ref }}...HEAD)
 
           echo "📝 All changed files:"
