@@ -34,7 +34,7 @@ jobs:
         id: changes
         run: |
           echo "Detecting changed workflow files..."
-          CHANGED_FILES=$(git diff --name-only ${{ github.event.pull_request.base.sha }} ${{ github.event.pull_request.head.sha }})
+          CHANGED_FILES=$(git diff --name-only origin/${{ github.event.pull_request.base.ref }}...HEAD)
 
           # Set changed_files output using heredoc
           {
