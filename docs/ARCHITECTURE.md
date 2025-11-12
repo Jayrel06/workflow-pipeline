@@ -92,22 +92,31 @@
         ┌──────────────────────┼──────────────────────┐
         │                      │                      │
 ┌───────▼────────┐   ┌────────▼───────┐   ┌─────────▼────────┐
-│   n8n MCP      │   │  Context7 MCP  │   │   GitHub MCP     │
-│  (Primary)     │   │  (Documentation│   │  (Automation)    │
-│                │   │   Validation)  │   │                  │
-│ • Validate     │   │                │   │ • Create Files   │
-│ • Create       │   │ • Get Docs     │   │ • Create PRs     │
-│ • Execute      │   │ • Verify       │   │ • Manage Issues  │
+│  Playwright    │   │   GitHub MCP   │   │  Docker Hub MCP  │
+│   (Browser     │   │  (Version Ctl) │   │  (Containers)    │
+│   Automation)  │   │                │   │                  │
+│ • UI Testing   │   │ • Create PRs   │   │ • Validate       │
+│ • Import Tests │   │ • Commit Files │   │ • Check Updates  │
+│ • Screenshots  │   │ • Manage Issues│   │ • Monitor Health │
 └───────┬────────┘   └────────┬───────┘   └─────────┬────────┘
         │                     │                      │
         │                     │                      │
 ┌───────▼────────┐   ┌────────▼───────┐   ┌─────────▼────────┐
-│  Brave Search  │   │  Kapture MCP   │   │ Resource Manager │
-│  (Research)    │   │  (Browser)     │   │  (Cross-MCP)     │
+│  Grafana MCP   │   │ Prometheus MCP │   │  Postgres MCP    │
+│  (Dashboards)  │   │  (Metrics)     │   │  (Database)      │
 │                │   │                │   │                  │
-│ • Web Search   │   │ • Screenshots  │   │ • List Resources │
-│ • Trends       │   │ • UI Testing   │   │ • Read Resources │
-└────────────────┘   └────────────────┘   └──────────────────┘
+│ • Create Dash  │   │ • Collect Data │   │ • Test Queries   │
+│ • Visualize    │   │ • Alert Rules  │   │ • Validate Data  │
+└───────┬────────┘   └────────┬───────┘   └─────────┬────────┘
+        │                     │                      │
+        └─────────────────────┼──────────────────────┘
+                              │
+                     ┌────────▼────────┐
+                     │   Memory MCP    │
+                     │   (Learning)    │
+                     │ • Store Patterns│
+                     │ • Recall Success│
+                     └─────────────────┘
 ```
 
 ## Data Flow
@@ -138,9 +147,11 @@ User Request
 - **Workflow Engine**: n8n
 - **Version Control**: GitHub
 - **Automation**: GitHub Actions
-- **MCPs**: n8n, Context7, GitHub, Brave Search, Kapture, Resources
-- **Monitoring**: Grafana (optional), Prometheus (optional)
-- **Testing**: Playwright, Custom validators
+- **MCPs (7 active)**: Playwright, GitHub, Docker Hub, Grafana, Postgres, Prometheus, Memory
+- **Infrastructure (11 containers)**: n8n, postgres, grafana, prometheus, playwright, redis, python-ai, jupyter, mailserver, portainer, cloudflared
+- **Monitoring**: Grafana, Prometheus
+- **Testing**: Playwright, Postgres test database
+- **Solo Developer Focus**: No team tools (Slack removed)
 
 ## Key Innovations
 

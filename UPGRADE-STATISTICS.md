@@ -31,11 +31,14 @@
    - Codex integration patterns
    - MCP usage documentation
 
-5. **docs/MCP-INTEGRATION-GUIDE.md** (790+ lines)
-   - Complete documentation for all 6 MCPs
+5. **docs/MCP-INTEGRATION-GUIDE.md** (2,036 lines - Solo Developer Edition)
+   - Complete documentation for all 7 MCPs (solo developer focus)
+   - 11-container Docker infrastructure documented
+   - Removed MCPs explained (Slack, SQLite, Kapture, OpenAI)
+   - 3 complete workflow examples with executable code
    - Integration points per stage
    - Real-world usage examples
-   - Architecture diagrams
+   - Architecture diagrams (Mermaid)
 
 6. **docs/ARCHITECTURE.md** (100+ lines)
    - System flow diagrams
@@ -121,11 +124,14 @@
 - [x] Links verified
 
 ### Phase 6: MCP Integration Guide ✅
-- [x] All 6 MCPs documented (n8n, Context7, GitHub, Brave, Kapture, Resources)
+- [x] All 7 MCPs documented (Playwright, GitHub, Docker Hub, Grafana, Postgres, Prometheus, Memory)
+- [x] Removed MCPs section explaining why Slack, SQLite, Kapture, OpenAI were skipped
+- [x] 11-container Docker infrastructure mapped
 - [x] Integration points clearly shown
-- [x] Architecture diagrams included
+- [x] Architecture diagrams included (Mermaid)
+- [x] 3 complete workflow examples with executable code
 - [x] Code examples executable
-- [x] 790+ lines comprehensive documentation
+- [x] 2,036 lines comprehensive documentation (Solo Developer Edition)
 
 ### Phase 7: Core Documentation Updates ✅
 - [x] README updated (pipeline diagram corrected)
@@ -177,11 +183,14 @@
 - ✅ Real-world examples throughout
 
 ### MCP Integration
-- ✅ 6 MCP servers integrated and documented
-- ✅ n8n MCP (38 tools available)
-- ✅ Context7 MCP (real-time docs)
-- ✅ GitHub MCP (automation)
-- ✅ Brave Search, Kapture, Resources
+- ✅ 7 MCP servers integrated and documented (Solo Developer Edition)
+- ✅ Playwright MCP (browser automation, replaces Kapture)
+- ✅ GitHub MCP (version control & PRs)
+- ✅ Docker Hub MCP (container validation)
+- ✅ Grafana MCP (dashboards)
+- ✅ Postgres MCP (database queries)
+- ✅ Prometheus MCP (metrics)
+- ✅ Memory MCP (pattern learning)
 
 ### Quality
 - ✅ All success criteria met (50+ checkboxes)
