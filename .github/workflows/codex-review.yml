@@ -32,25 +32,15 @@ jobs:
 
       - name: Detect Changed Files
         id: changes
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           echo "Detecting changed workflow files..."
           echo "Base ref: ${{ github.event.pull_request.base.ref }}"
           echo "Head ref: ${{ github.head_ref }}"
 
-          # Debug: Show current branch and commits
-          echo "Current HEAD: $(git rev-parse HEAD)"
-          echo "Current branch: $(git branch --show-current)"
-
-          # Fetch latest base branch to compare against current main
-          git fetch origin ${{ github.event.pull_request.base.ref }}
-          echo "Origin/main HEAD: $(git rev-parse origin/${{ github.event.pull_request.base.ref }})"
-
-          # Compare using merge-base explicitly
-          MERGE_BASE=$(git merge-base origin/${{ github.event.pull_request.base.ref }} HEAD)
-          echo "Merge base: $MERGE_BASE"
-
-          # Use two-dot syntax to see all changes from base to head
-          CHANGED_FILES=$(git diff --name-only $MERGE_BASE...HEAD)
+          # Use GitHub API to get changed files (matches PR interface)
+          CHANGED_FILES=$(gh api repos/${{ github.repository }}/compare/${{ github.event.pull_request.base.ref }}...${{ github.head_ref }} --jq '.files[].filename' | tr '\n' ' ')
 
           echo "📝 All changed files:"
           echo "$CHANGED_FILES"
