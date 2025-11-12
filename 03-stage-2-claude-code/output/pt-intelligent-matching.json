@@ -1,0 +1,175 @@
+{
+  "name": "PT Intelligent Matching System",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [{"field": "cronExpression", "expression": "0 9 * * 1"}]
+        },
+        "timezone": "America/New_York"
+      },
+      "id": "schedule-trigger",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT c.id, c.clinic_name, c.business_type, c.city, c.state FROM clinics_contact_info c LEFT JOIN matched_segments m ON c.id = m.clinic_id WHERE m.id IS NULL AND c.business_type IS NOT NULL LIMIT 100"
+      },
+      "id": "get-unmatched-clinics",
+      "name": "Get Unmatched Clinics",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [450, 300],
+      "credentials": {"postgres": {"id": "postgres-account", "name": "Postgres PT Clinic Intel"}}
+    },
+    {
+      "parameters": {
+        "batchSize": 10,
+        "options": {}
+      },
+      "id": "split-batches",
+      "name": "Split Into Batches",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=SELECT id, pain_category, pain_text, severity_score, state, source, mentions FROM pain_points WHERE state = '{{ $json.state }}' OR state IS NULL ORDER BY severity_score DESC, mentions DESC LIMIT 20"
+      },
+      "id": "get-pain-points",
+      "name": "Get Relevant Pain Points",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [850, 300],
+      "credentials": {"postgres": {"id": "postgres-account", "name": "Postgres PT Clinic Intel"}}
+    },
+    {
+      "parameters": {
+        "jsCode": "const businessType = ($node['Split Into Batches'].json.business_type || '').toLowerCase();\nconst clinic = $node['Split Into Batches'].json;\nconst painPoints = $input.all();\n\n// Business type to pain category mapping\nconst categoryMap = {\n  'sports medicine': ['scheduling', 'operations'],\n  'sports': ['scheduling', 'operations'],\n  'physical therapy': ['emr', 'billing', 'scheduling'],\n  'orthopedic': ['operations', 'staffing'],\n  'cash-based': ['marketing', 'billing'],\n  'cash': ['marketing', 'billing'],\n  'rehabilitation': ['emr', 'operations'],\n  'rehab': ['emr', 'operations']\n};\n\n// Find matching categories\nlet matchedCategories = [];\nfor (const [type, categories] of Object.entries(categoryMap)) {\n  if (businessType.includes(type)) {\n    matchedCategories = categories;\n    break;\n  }\n}\n\n// Default to common categories if no match\nif (matchedCategories.length === 0) {\n  matchedCategories = ['scheduling', 'marketing'];\n}\n\n// Filter and score pain points\nconst scoredPains = painPoints.map(p => {\n  let score = 0;\n  score += (p.json.severity_score || 5) * 3;  // 30% severity (x10 scale)\n  score += (p.json.state === clinic.state ? 40 : 0);  // 40% geography\n  score += (matchedCategories.includes(p.json.pain_category) ? 30 : 0);  // 30% category\n  return { ...p.json, match_score: score };\n});\n\n// Get top 3 pain points\nconst topPains = scoredPains\n  .sort((a, b) => b.match_score - a.match_score)\n  .slice(0, 3);\n\n// Calculate confidence\nconst hasLocalPains = topPains.some(p => p.state === clinic.state);\nconst hasCategoryMatch = topPains.some(p => matchedCategories.includes(p.pain_category));\nlet confidence = 0.5;\nif (hasCategoryMatch && hasLocalPains) confidence = 0.85;\nelse if (hasCategoryMatch || hasLocalPains) confidence = 0.7;\n\nreturn [{ json: {\n  clinic_id: clinic.id,\n  clinic_name: clinic.clinic_name,\n  business_type: clinic.business_type,\n  city: clinic.city,\n  state: clinic.state,\n  top_pain_points: topPains,\n  matched_categories: matchedCategories,\n  match_confidence: confidence\n}}];"
+      },
+      "id": "match-categories",
+      "name": "Match Categories & Score",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1050, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "anthropicApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {"name": "anthropic-version", "value": "2023-06-01"}
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={ \"model\": \"claude-3-5-sonnet-20241022\", \"max_tokens\": 500, \"messages\": [{ \"role\": \"user\", \"content\": \"Write a 2-3 sentence personalized outreach message for a PT clinic. Clinic: \" + $json.clinic_name + \" (\" + $json.business_type + \") in \" + $json.city + \", \" + $json.state + \". Top pain points they likely face based on local data: \" + $json.top_pain_points.map(p => p.pain_category + \" - \" + p.pain_text.substring(0, 50)).join(\"; \") + \". Make it conversational and reference specific pain points without being salesy.\" }] }",
+        "options": {}
+      },
+      "id": "generate-outreach",
+      "name": "Generate Outreach (Claude)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1250, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const response = JSON.parse($json.body);\nconst outreachMessage = response.content[0].text.trim();\n\nconst matchData = $node['Match Categories & Score'].json;\n\nreturn [{ json: {\n  clinic_id: matchData.clinic_id,\n  clinic_name: matchData.clinic_name,\n  pain_point_ids: JSON.stringify(matchData.top_pain_points.map(p => p.id)),\n  outreach_message: outreachMessage,\n  match_confidence: matchData.match_confidence,\n  matched_categories: JSON.stringify(matchData.matched_categories)\n}}];"
+      },
+      "id": "parse-message",
+      "name": "Parse Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1450, 300]
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "schema": {"__rl": true, "value": "public", "mode": "list"},
+        "table": {"__rl": true, "value": "matched_segments", "mode": "list"},
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "clinic_id": "={{ $json.clinic_id }}",
+            "pain_point_ids": "={{ $json.pain_point_ids }}",
+            "outreach_message": "={{ $json.outreach_message }}",
+            "match_confidence": "={{ $json.match_confidence }}",
+            "matched_categories": "={{ $json.matched_categories }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "store-match",
+      "name": "Store Match",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1650, 300],
+      "credentials": {"postgres": {"id": "postgres-account", "name": "Postgres PT Clinic Intel"}}
+    },
+    {
+      "parameters": {},
+      "id": "loop-back",
+      "name": "Loop Back",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [1850, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const allMatches = $input.all();\n\n// Skip if no matches (loop still running)\nif (allMatches.length === 0) {\n  return [];\n}\n\nconst highConfidence = allMatches.filter(m => m.json.match_confidence > 0.8);\nconst mediumConfidence = allMatches.filter(m => m.json.match_confidence >= 0.5 && m.json.match_confidence <= 0.8);\n\n// Get unique categories\nconst allCategories = allMatches\n  .map(m => {\n    try {\n      return JSON.parse(m.json.matched_categories || '[]');\n    } catch {\n      return [];\n    }\n  })\n  .flat();\nconst uniqueCategories = [...new Set(allCategories)];\n\nconst report = '🎯 **Intelligent Matching Report**\\n\\n' +\n  '**Total Clinics Matched**: ' + allMatches.length + '\\n' +\n  '**High Confidence**: ' + highConfidence.length + ' (>0.8)\\n' +\n  '**Medium Confidence**: ' + mediumConfidence.length + ' (0.5-0.8)\\n' +\n  '**Top Categories**: ' + uniqueCategories.join(', ') + '\\n';\n\nreturn [{ json: {\n  report,\n  stats: {\n    total: allMatches.length,\n    high: highConfidence.length,\n    medium: mediumConfidence.length,\n    categories: uniqueCategories\n  }\n}}];"
+      },
+      "id": "generate-report",
+      "name": "Generate Report",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2050, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SLACK_WEBHOOK_URL }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={ \"text\": $json.report, \"channel\": \"#pt-intelligence\" }",
+        "options": {}
+      },
+      "id": "slack-notification",
+      "name": "Slack: Send Summary",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2250, 300]
+    }
+  ],
+  "connections": {
+    "schedule-trigger": {"main": [[{"node": "get-unmatched-clinics", "type": "main", "index": 0}]]},
+    "get-unmatched-clinics": {"main": [[{"node": "split-batches", "type": "main", "index": 0}]]},
+    "split-batches": {"main": [[{"node": "get-pain-points", "type": "main", "index": 0}]]},
+    "get-pain-points": {"main": [[{"node": "match-categories", "type": "main", "index": 0}]]},
+    "match-categories": {"main": [[{"node": "generate-outreach", "type": "main", "index": 0}]]},
+    "generate-outreach": {"main": [[{"node": "parse-message", "type": "main", "index": 0}]]},
+    "parse-message": {"main": [[{"node": "store-match", "type": "main", "index": 0}]]},
+    "store-match": {"main": [[{"node": "loop-back", "type": "main", "index": 0}]]},
+    "loop-back": {"main": [[{"node": "split-batches", "type": "main", "index": 0}]]},
+    "split-batches": {"main": [[null], [{"node": "generate-report", "type": "main", "index": 0}]]},
+    "generate-report": {"main": [[{"node": "slack-notification", "type": "main", "index": 0}]]}
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "timezone": "America/New_York"
+  },
+  "tags": [],
+  "triggerCount": 0,
+  "updatedAt": "2025-11-11T23:50:00.000Z",
+  "versionId": "1"
+}

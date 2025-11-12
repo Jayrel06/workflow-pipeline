@@ -1,0 +1,308 @@
+{
+  "name": "PT LinkedIn Scraper",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "manual-trigger",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [250, 400]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {"id": "mode", "name": "mode", "value": "pain_discovery", "type": "string"},
+            {"id": "query", "name": "query", "value": "physical therapy clinic challenges", "type": "string"},
+            {"id": "limit", "name": "limit", "value": 10, "type": "number"},
+            {"id": "clinic_id", "name": "clinic_id", "value": "", "type": "number"}
+          ]
+        }
+      },
+      "id": "config-params",
+      "name": "Config: Parameters",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [450, 400]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=SELECT operation_count, week_start FROM linkedin_operation_tracker WHERE week_start >= NOW() - INTERVAL '7 days' LIMIT 1"
+      },
+      "id": "check-budget",
+      "name": "Check Weekly Budget",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [650, 400],
+      "credentials": {"postgres": {"id": "postgres-account", "name": "Postgres PT Clinic Intel"}}
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "conditions": [
+            {"leftValue": "={{ $json.operation_count }}", "rightValue": "150", "operator": {"type": "number", "operation": "lt"}}
+          ]
+        }
+      },
+      "id": "budget-check-if",
+      "name": "IF: Budget OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [850, 400]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "conditions": [
+            {"leftValue": "={{ $node['Config: Parameters'].json.mode }}", "rightValue": "pain_discovery", "operator": {"type": "string", "operation": "equals"}}
+          ]
+        }
+      },
+      "id": "mode-branch",
+      "name": "IF: Pain Discovery?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1050, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// NOTE: This is a mock implementation\n// In production, replace with actual Kapture MCP calls:\n// 1. new_tab\n// 2. navigate to LinkedIn search URL\n// 3. elements to extract posts\n\nconst query = $node['Config: Parameters'].json.query;\nconst limit = $node['Config: Parameters'].json.limit;\n\n// Mock pain points from LinkedIn posts\nconst mockPosts = [\n  { text: 'Struggling with no-show rates at our PT clinic. Tried reminder calls but still 20% no-shows.', author: 'John Doe', title: 'Clinic Owner' },\n  { text: 'Our EMR system is so clunky. Takes 5 minutes just to document a simple eval.', author: 'Jane Smith', title: 'PT Director' },\n  { text: 'Marketing costs are killing us. Spending $2k/month on Google Ads with minimal returns.', author: 'Mike Johnson', title: 'Practice Owner' }\n].slice(0, limit);\n\nreturn mockPosts.map(post => ({\n  json: {\n    source: 'linkedin',\n    text: post.text,\n    author: post.author,\n    author_title: post.title,\n    extracted_at: new Date().toISOString()\n  }\n}));\n\n// PRODUCTION: Use Kapture MCP tools for actual LinkedIn scraping"
+      },
+      "id": "mock-pain-discovery",
+      "name": "Mock: Pain Discovery",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1250, 200]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=SELECT id, clinic_name, city, state FROM clinics_contact_info WHERE id = {{ $node['Config: Parameters'].json.clinic_id }} LIMIT 1"
+      },
+      "id": "get-clinic",
+      "name": "DB: Get Clinic",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1250, 400],
+      "credentials": {"postgres": {"id": "postgres-account", "name": "Postgres PT Clinic Intel"}}
+    },
+    {
+      "parameters": {
+        "jsCode": "// NOTE: This is a mock implementation\n// In production, replace with actual Kapture MCP calls:\n// 1. new_tab\n// 2. navigate to LinkedIn search (company + location)\n// 3. click on profile\n// 4. dom to extract profile details\n\nconst clinicName = $json.clinic_name;\nconst city = $json.city;\nconst state = $json.state;\n\n// Mock decision maker profile\nconst mockProfile = {\n  name: 'Sarah Williams',\n  title: 'Owner & Physical Therapist',\n  company: clinicName,\n  linkedin_url: 'https://linkedin.com/in/sarah-williams-pt-' + city.toLowerCase(),\n  location: city + ', ' + state\n};\n\nreturn [{\n  json: {\n    ...mockProfile,\n    clinic_id: $json.id,\n    clinic_name: clinicName,\n    source: 'linkedin',\n    extracted_at: new Date().toISOString()\n  }\n}];\n\n// PRODUCTION: Use Kapture MCP tools for actual LinkedIn profile extraction"
+      },
+      "id": "mock-profile-enrichment",
+      "name": "Mock: Profile Enrichment",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1450, 400]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "anthropicApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {"name": "anthropic-version", "value": "2023-06-01"}
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={ \"model\": \"claude-3-5-sonnet-20241022\", \"max_tokens\": 1024, \"messages\": [{ \"role\": \"user\", \"content\": \"Categorize this PT clinic pain point into ONE category: emr, billing, scheduling, marketing, operations, staffing. Pain: \" + $json.text + \". Respond with ONLY the category name, nothing else.\" }] }",
+        "options": {}
+      },
+      "id": "categorize-claude",
+      "name": "Claude: Categorize Pain",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1450, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "const response = JSON.parse($json.body);\nconst category = response.content[0].text.trim().toLowerCase();\n\nreturn [{\n  json: {\n    source: $node['Mock: Pain Discovery'].json.source,\n    pain_category: category,\n    pain_text: $node['Mock: Pain Discovery'].json.text,\n    severity_score: 5,\n    mentions: 1,\n    example_urls: JSON.stringify([{ author: $node['Mock: Pain Discovery'].json.author, title: $node['Mock: Pain Discovery'].json.author_title }]),\n    created_at: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "parse-category",
+      "name": "Parse Category",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1650, 200]
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "schema": {"__rl": true, "value": "public", "mode": "list"},
+        "table": {"__rl": true, "value": "pain_points", "mode": "list"},
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "source": "={{ $json.source }}",
+            "pain_category": "={{ $json.pain_category }}",
+            "pain_text": "={{ $json.pain_text }}",
+            "severity_score": "={{ $json.severity_score }}",
+            "mentions": "={{ $json.mentions }}",
+            "example_urls": "={{ $json.example_urls }}"
+          }
+        }
+      },
+      "id": "insert-pain",
+      "name": "DB: INSERT Pain Point",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1850, 200],
+      "credentials": {"postgres": {"id": "postgres-account", "name": "Postgres PT Clinic Intel"}}
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "schema": {"__rl": true, "value": "public", "mode": "list"},
+        "table": {"__rl": true, "value": "decision_makers", "mode": "list"},
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "name": "={{ $json.name }}",
+            "title": "={{ $json.title }}",
+            "company_name": "={{ $json.company }}",
+            "linkedin_url": "={{ $json.linkedin_url }}"
+          }
+        },
+        "options": {"skipOnConflict": true}
+      },
+      "id": "insert-decision-maker",
+      "name": "DB: INSERT Decision Maker",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1650, 400],
+      "credentials": {"postgres": {"id": "postgres-account", "name": "Postgres PT Clinic Intel"}}
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "schema": {"__rl": true, "value": "public", "mode": "list"},
+        "table": {"__rl": true, "value": "matched_segments", "mode": "list"},
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "clinic_id": "={{ $node['Mock: Profile Enrichment'].json.clinic_id }}",
+            "decision_maker_id": "={{ $json.id }}",
+            "match_confidence": 0.95
+          }
+        }
+      },
+      "id": "link-clinic-dm",
+      "name": "DB: Link Clinic to DM",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1850, 400],
+      "credentials": {"postgres": {"id": "postgres-account", "name": "Postgres PT Clinic Intel"}}
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE linkedin_operation_tracker SET operation_count = operation_count + 1 WHERE week_start >= NOW() - INTERVAL '7 days'"
+      },
+      "id": "increment-ops",
+      "name": "DB: Increment Operations",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [2050, 300],
+      "credentials": {"postgres": {"id": "postgres-account", "name": "Postgres PT Clinic Intel"}}
+    },
+    {
+      "parameters": {
+        "amount": 10,
+        "unit": "seconds"
+      },
+      "id": "rate-limit-wait",
+      "name": "Wait: 10 Seconds",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [2250, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const mode = $node['Config: Parameters'].json.mode;\nconst painCount = mode === 'pain_discovery' ? $input.all().length : 0;\nconst profileCount = mode === 'profile_enrichment' ? 1 : 0;\n\nconst report = '🔗 **LinkedIn Scraping Report**\\n\\n' +\n  '**Mode**: ' + mode + '\\n' +\n  '**Pain Points Found**: ' + painCount + '\\n' +\n  '**Profiles Enriched**: ' + profileCount + '\\n' +\n  '**Operations Used**: +' + (painCount + profileCount) + '\\n';\n\nreturn [{ json: { report, stats: { pain_count: painCount, profile_count: profileCount } } }];"
+      },
+      "id": "generate-report",
+      "name": "Generate Report",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2450, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SLACK_WEBHOOK_URL }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={ \"text\": $json.report, \"channel\": \"#pt-intelligence\" }",
+        "options": {}
+      },
+      "id": "slack-notification",
+      "name": "Slack: Send Summary",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2650, 300]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {"id": "error", "name": "error", "value": "Weekly operation budget exceeded (150 ops)", "type": "string"}
+          ]
+        }
+      },
+      "id": "budget-exceeded",
+      "name": "Budget Exceeded Error",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1050, 500]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SLACK_WEBHOOK_URL }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={ \"text\": \"⚠️ LinkedIn scraper stopped: Weekly operation budget exceeded (150 ops). Resets next Monday.\", \"channel\": \"#pt-intelligence\" }",
+        "options": {}
+      },
+      "id": "slack-budget-alert",
+      "name": "Slack: Budget Alert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1250, 500]
+    }
+  ],
+  "connections": {
+    "manual-trigger": {"main": [[{"node": "config-params", "type": "main", "index": 0}]]},
+    "config-params": {"main": [[{"node": "check-budget", "type": "main", "index": 0}]]},
+    "check-budget": {"main": [[{"node": "budget-check-if", "type": "main", "index": 0}]]},
+    "budget-check-if": {"main": [[{"node": "mode-branch", "type": "main", "index": 0}], [{"node": "budget-exceeded", "type": "main", "index": 0}]]},
+    "mode-branch": {"main": [[{"node": "mock-pain-discovery", "type": "main", "index": 0}], [{"node": "get-clinic", "type": "main", "index": 0}]]},
+    "mock-pain-discovery": {"main": [[{"node": "categorize-claude", "type": "main", "index": 0}]]},
+    "get-clinic": {"main": [[{"node": "mock-profile-enrichment", "type": "main", "index": 0}]]},
+    "mock-profile-enrichment": {"main": [[{"node": "insert-decision-maker", "type": "main", "index": 0}]]},
+    "categorize-claude": {"main": [[{"node": "parse-category", "type": "main", "index": 0}]]},
+    "parse-category": {"main": [[{"node": "insert-pain", "type": "main", "index": 0}]]},
+    "insert-pain": {"main": [[{"node": "increment-ops", "type": "main", "index": 0}]]},
+    "insert-decision-maker": {"main": [[{"node": "link-clinic-dm", "type": "main", "index": 0}]]},
+    "link-clinic-dm": {"main": [[{"node": "increment-ops", "type": "main", "index": 0}]]},
+    "increment-ops": {"main": [[{"node": "rate-limit-wait", "type": "main", "index": 0}]]},
+    "rate-limit-wait": {"main": [[{"node": "generate-report", "type": "main", "index": 0}]]},
+    "generate-report": {"main": [[{"node": "slack-notification", "type": "main", "index": 0}]]},
+    "budget-exceeded": {"main": [[{"node": "slack-budget-alert", "type": "main", "index": 0}]]}
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "timezone": "America/New_York"
+  },
+  "tags": [],
+  "triggerCount": 0,
+  "updatedAt": "2025-11-11T23:45:00.000Z",
+  "versionId": "1"
+}
