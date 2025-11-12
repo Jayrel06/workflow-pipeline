@@ -280,3 +280,42 @@ Each workflow follows the same process:
 7. Test & deploy
 
 **Happy workflow building!** 🚀
+
+## ⚡ New: Stage 3 Automatic Review (Added January 2025)
+
+After Stage 2 completes, your workflow is automatically reviewed by Codex:
+
+```bash
+# Stage 2 complete - push to GitHub
+git checkout -b workflow/my-workflow
+git add 03-stage-2-claude-code/output/*
+git commit -m "Stage 2: Implement workflow"
+git push origin workflow/my-workflow
+
+# Create PR - Codex reviews automatically
+gh pr create --title "My Workflow"
+
+# Wait 1-2 minutes for automatic Codex review
+# Check PR for review comments
+gh pr view --web
+
+# Fix any P0 issues found
+# Push fixes - Codex re-reviews automatically
+git add .
+git commit -m "Fix: Apply Codex suggestions"
+git push
+
+# Merge when no P0 issues
+gh pr merge --squash
+```
+
+**Codex automatically checks for:**
+- ❌ Missing error handling
+- ❌ Hardcoded credentials
+- ❌ Unsafe webhook configurations
+- ❌ HIPAA violations (patient data in logs)
+- ⚠️ Missing validation and timeouts
+- 💡 Performance optimizations
+
+**Setup**: See `05-stage-3-codex/README.md` for 5-minute setup guide
+
