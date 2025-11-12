@@ -43,21 +43,33 @@ jobs:
             echo "EOF"
           } >> $GITHUB_OUTPUT
 
-          # Count workflow JSON files
-          WORKFLOW_COUNT=$(echo "$CHANGED_FILES" | grep -c "\.json$" || true)
-          if [ -z "$WORKFLOW_COUNT" ] || [ "$WORKFLOW_COUNT" = "" ]; then
-            WORKFLOW_COUNT=0
-          fi
-          echo "workflow_count=$WORKFLOW_COUNT" >> $GITHUB_OUTPUT
-
-          # Extract workflow content for review
-          echo "Extracting workflow content..."
+          # Filter for workflow JSON files in specific directories
+          WORKFLOW_FILES=""
           for file in $CHANGED_FILES; do
-            if [[ $file == *.json ]]; then
-              echo "Found workflow: $file"
+            # Only count JSON files in workflow output directories
+            if [[ $file == 03-stage-2-claude-code/output/*.json ]] || \n               [[ $file == 05-stage-3-codex/output/*.json ]] || \n               [[ $file == 07-stage-4-copilot/output/*.json ]]; then
+              WORKFLOW_FILES="$WORKFLOW_FILES$file"$'
+'
+              echo "✅ Found workflow: $file"
             fi
           done
 
+          # Set workflow_files output
+          {
+            echo "workflow_files<<EOF"
+            echo "$WORKFLOW_FILES"
+            echo "EOF"
+          } >> $GITHUB_OUTPUT
+
+          # Count workflow JSON files (filtered)
+          if [ -z "$WORKFLOW_FILES" ]; then
+            WORKFLOW_COUNT=0
+          else
+            WORKFLOW_COUNT=$(echo "$WORKFLOW_FILES" | grep -c ".json" || true)
+          fi
+          echo ""
+          echo "📊 Workflow Count: $WORKFLOW_COUNT JSON files"
+          echo "workflow_count=$WORKFLOW_COUNT" >> $GITHUB_OUTPUT
       - name: Trigger Codex Review (Comment)
         uses: actions/github-script@v7
         with:
@@ -81,6 +93,11 @@ jobs:
             **Changed Files:**
             \`\`\`
             ${{ steps.changes.outputs.changed_files }}
+            \`\`\`
+
+            **Workflow Files for Review:**
+            \`\`\`
+            ${{ steps.changes.outputs.workflow_files }}
             \`\`\`
 
             **Workflow Count:** ${{ steps.changes.outputs.workflow_count }} JSON files
