@@ -34,7 +34,14 @@ jobs:
         id: changes
         run: |
           echo "Detecting changed workflow files..."
+          echo "Base ref: ${{ github.event.pull_request.base.ref }}"
+          echo "Head ref: ${{ github.head_ref }}"
+
           CHANGED_FILES=$(git diff --name-only origin/${{ github.event.pull_request.base.ref }}...HEAD)
+
+          echo "📝 All changed files:"
+          echo "$CHANGED_FILES"
+          echo ""
 
           # Set changed_files output using heredoc
           {
