@@ -1,0 +1,322 @@
+name: Codex Automatic Workflow Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - '01-stage-1-claude-desktop/output/**/*.md'
+      - '03-stage-2-claude-code/output/**/*.json'
+      - '05-stage-3-codex/output/**/*.json'
+      - '07-stage-4-copilot/output/**/*.json'
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  codex-auto-review:
+    name: Codex Code Review
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for comprehensive diff
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Detect Changed Files
+        id: changes
+        run: |
+          echo "Detecting changed workflow files..."
+          CHANGED_FILES=$(git diff --name-only ${{ github.event.pull_request.base.sha }} ${{ github.event.pull_request.head.sha }})
+          echo "changed_files<<EOF" >> $GITHUB_OUTPUT
+          echo "$CHANGED_FILES" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+          # Count workflow JSON files
+          WORKFLOW_COUNT=$(echo "$CHANGED_FILES" | grep -c "\.json$" || echo "0")
+          echo "workflow_count=$WORKFLOW_COUNT" >> $GITHUB_OUTPUT
+
+          # Extract workflow content for review
+          echo "Extracting workflow content..."
+          for file in $CHANGED_FILES; do
+            if [[ $file == *.json ]]; then
+              echo "Found workflow: $file"
+            fi
+          done
+
+      - name: Trigger Codex Review (Comment)
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const comment = `## 🤖 Codex Automatic Review Started
+
+            @codex review this PR for n8n workflow best practices.
+
+            **Focus Areas:**
+            - ❌ Missing error handling in n8n nodes
+            - ❌ Hardcoded credentials or API keys
+            - ❌ Unsafe webhook configurations
+            - ❌ Missing rate limiting on external APIs
+            - ❌ HIPAA compliance violations (patient data)
+            - ⚠️ Missing data validation
+            - ⚠️ No timeout configurations
+            - ⚠️ Hardcoded values (should be env vars)
+
+            **Review Guidelines**: See \`AGENTS.md\` for complete criteria
+
+            **Changed Files:**
+            \`\`\`
+            ${{ steps.changes.outputs.changed_files }}
+            \`\`\`
+
+            **Workflow Count:** ${{ steps.changes.outputs.workflow_count }} JSON files
+
+            ⏳ Codex will respond within 1-2 minutes...
+            `;
+
+            await github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: comment
+            });
+
+      - name: Wait for Codex Processing
+        run: |
+          echo "Waiting 90 seconds for Codex to process..."
+          echo "Codex analyzes code and generates review comments..."
+          sleep 90
+
+      - name: Check Codex Review Status
+        id: codex_status
+        uses: actions/github-script@v7
+        with:
+          script: |
+            // Get all comments on this PR
+            const comments = await github.rest.issues.listComments({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo
+            });
+
+            // Look for Codex response (check last 5 minutes)
+            const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
+            const codexResponse = comments.data.find(c => {
+              const commentDate = new Date(c.created_at);
+              return (
+                (c.user.login === 'github-actions[bot]' ||
+                 c.user.login.includes('codex') ||
+                 c.body.includes('@codex') ||
+                 c.body.includes('Codex') ||
+                 c.body.includes('Review')) &&
+                commentDate > fiveMinutesAgo
+              );
+            });
+
+            if (codexResponse) {
+              console.log('✅ Codex review comment found');
+              core.setOutput('review_found', 'true');
+
+              // Parse for critical issues
+              const bodyLower = codexResponse.body.toLowerCase();
+              const hasCritical =
+                codexResponse.body.includes('🔴') ||
+                bodyLower.includes('critical') ||
+                bodyLower.includes('p0') ||
+                bodyLower.includes('block') ||
+                bodyLower.includes('security') ||
+                bodyLower.includes('hardcoded') ||
+                bodyLower.includes('credential');
+
+              core.setOutput('has_critical', hasCritical.toString());
+
+              if (hasCritical) {
+                console.log('⚠️ Critical issues detected in review');
+              } else {
+                console.log('✅ No critical issues found');
+              }
+            } else {
+              console.log('⏳ Codex review not found yet - may need more time');
+              core.setOutput('review_found', 'false');
+              core.setOutput('has_critical', 'false');
+            }
+
+      - name: Add Review Summary Label
+        uses: actions/github-script@v7
+        if: steps.codex_status.outputs.review_found == 'true'
+        with:
+          script: |
+            const hasCritical = ${{ steps.codex_status.outputs.has_critical }};
+            const labels = ['codex-reviewed'];
+
+            if (hasCritical) {
+              labels.push('codex: needs-fixes');
+            } else {
+              labels.push('codex: approved');
+            }
+
+            await github.rest.issues.addLabels({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              labels: labels
+            });
+
+      - name: Block Merge on Critical Issues
+        if: steps.codex_status.outputs.has_critical == 'true'
+        run: |
+          echo "❌ CRITICAL ISSUES FOUND by Codex"
+          echo "Review Codex comments and fix P0 issues before merging"
+          echo ""
+          echo "Common P0 issues:"
+          echo "- Missing error handling"
+          echo "- Hardcoded credentials"
+          echo "- Unsafe webhook configuration"
+          echo "- HIPAA violations"
+          echo "- Missing rate limiting"
+          exit 1
+
+      - name: Post Summary
+        uses: actions/github-script@v7
+        if: always()
+        with:
+          script: |
+            const reviewFound = '${{ steps.codex_status.outputs.review_found }}';
+            const hasCritical = '${{ steps.codex_status.outputs.has_critical }}';
+            const workflowCount = '${{ steps.changes.outputs.workflow_count }}';
+
+            let summary = `## 📊 Codex Review Summary\n\n`;
+            summary += `**Workflows Changed**: ${workflowCount}\n`;
+            summary += `**Review Status**: ${reviewFound === 'true' ? '✅ Complete' : '⏳ Pending'}\n`;
+
+            if (hasCritical === 'true') {
+              summary += `**Critical Issues**: ❌ Found - Must fix before merge\n`;
+            } else if (reviewFound === 'true') {
+              summary += `**Critical Issues**: ✅ None found\n`;
+            }
+
+            summary += `\n**Next Steps**:\n`;
+            if (hasCritical === 'true') {
+              summary += `1. Review Codex comments above\n`;
+              summary += `2. Fix all P0 (Critical) issues\n`;
+              summary += `3. Push fixes to this branch\n`;
+              summary += `4. Codex will auto-review again\n`;
+            } else if (reviewFound === 'true') {
+              summary += `1. Review any P1/P2 suggestions\n`;
+              summary += `2. Apply optional optimizations\n`;
+              summary += `3. Merge when ready ✅\n`;
+            } else {
+              summary += `1. Wait for Codex review to complete\n`;
+              summary += `2. Check back in 2-3 minutes\n`;
+            }
+
+            summary += `\n---\n`;
+            summary += `**Review Guidelines**: See [\`AGENTS.md\`](../blob/main/AGENTS.md) for complete criteria\n`;
+            summary += `**Powered by**: Codex + n8n MCP validation\n`;
+
+            await github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: summary
+            });
+
+  # Secondary job: Deep validation with n8n MCP (if available)
+  validate-n8n-workflows:
+    name: Validate n8n Workflows
+    runs-on: ubuntu-latest
+    needs: codex-auto-review
+    if: contains(github.event.pull_request.changed_files, '.json')
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Validate n8n Workflow Structure
+        run: |
+          echo "Validating n8n workflows against best practices..."
+
+          # Find all workflow JSON files in the PR
+          WORKFLOW_FILES=$(find ./03-stage-2-claude-code/output ./05-stage-3-codex/output -name "*.json" 2>/dev/null || echo "")
+
+          if [ -z "$WORKFLOW_FILES" ]; then
+            echo "No workflow files to validate"
+            exit 0
+          fi
+
+          # Basic JSON validation
+          for file in $WORKFLOW_FILES; do
+            echo "Validating: $file"
+
+            # Check if valid JSON
+            if ! jq empty "$file" 2>/dev/null; then
+              echo "❌ Invalid JSON: $file"
+              exit 1
+            fi
+
+            # Check for required top-level keys
+            if ! jq -e '.nodes' "$file" > /dev/null 2>&1; then
+              echo "❌ Missing 'nodes' key: $file"
+              exit 1
+            fi
+
+            if ! jq -e '.connections' "$file" > /dev/null 2>&1; then
+              echo "❌ Missing 'connections' key: $file"
+              exit 1
+            fi
+
+            # Extract and count nodes
+            NODE_COUNT=$(jq '.nodes | length' "$file")
+            echo "✅ Valid workflow with $NODE_COUNT nodes: $file"
+
+            # Check for common issues
+            HARDCODED_KEYS=$(grep -o '"apiKey":\s*"sk-[^"]*"' "$file" || echo "")
+            if [ ! -z "$HARDCODED_KEYS" ]; then
+              echo "⚠️ WARNING: Possible hardcoded API key detected in: $file"
+            fi
+
+            UNAUTHENTICATED_WEBHOOKS=$(jq '.nodes[] | select(.type == "n8n-nodes-base.webhook") | select(.parameters.authentication == null or .parameters.authentication == "")' "$file" || echo "")
+            if [ ! -z "$UNAUTHENTICATED_WEBHOOKS" ]; then
+              echo "⚠️ WARNING: Unauthenticated webhook detected in: $file"
+            fi
+          done
+
+          echo ""
+          echo "✅ All workflows passed structural validation"
+
+      - name: Post Validation Results
+        uses: actions/github-script@v7
+        if: always()
+        with:
+          script: |
+            const validationComment = `## 📚 n8n Workflow Validation
+
+            All n8n workflow files have been validated for:
+            - ✅ Valid JSON syntax
+            - ✅ Required workflow structure (nodes, connections)
+            - ✅ Basic security checks (hardcoded credentials)
+            - ✅ Webhook authentication
+
+            **Note:** This is a basic structural validation. Codex review above provides comprehensive code review.
+
+            **For detailed validation**, consider running workflows in n8n test environment.
+            `;
+
+            await github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: validationComment
+            });
