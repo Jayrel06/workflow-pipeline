@@ -47,11 +47,14 @@ jobs:
           WORKFLOW_FILES=""
           for file in $CHANGED_FILES; do
             # Only count JSON files in workflow output directories
-            if [[ $file == 03-stage-2-claude-code/output/*.json ]] || \n               [[ $file == 05-stage-3-codex/output/*.json ]] || \n               [[ $file == 07-stage-4-copilot/output/*.json ]]; then
-              WORKFLOW_FILES="$WORKFLOW_FILES$file"$'
-'
-              echo "✅ Found workflow: $file"
-            fi
+            case "$file" in
+              03-stage-2-claude-code/output/*.json|\
+              05-stage-3-codex/output/*.json|\
+              07-stage-4-copilot/output/*.json)
+                WORKFLOW_FILES="$WORKFLOW_FILES$file"$'\n'
+                echo "✅ Found workflow: $file"
+                ;;
+            esac
           done
 
           # Set workflow_files output
