@@ -35,12 +35,19 @@ jobs:
         run: |
           echo "Detecting changed workflow files..."
           CHANGED_FILES=$(git diff --name-only ${{ github.event.pull_request.base.sha }} ${{ github.event.pull_request.head.sha }})
-          echo "changed_files<<EOF" >> $GITHUB_OUTPUT
-          echo "$CHANGED_FILES" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
+
+          # Set changed_files output using heredoc
+          {
+            echo "changed_files<<EOF"
+            echo "$CHANGED_FILES"
+            echo "EOF"
+          } >> $GITHUB_OUTPUT
 
           # Count workflow JSON files
-          WORKFLOW_COUNT=$(echo "$CHANGED_FILES" | grep -c "\.json$" || echo "0")
+          WORKFLOW_COUNT=$(echo "$CHANGED_FILES" | grep -c "\.json$" || true)
+          if [ -z "$WORKFLOW_COUNT" ] || [ "$WORKFLOW_COUNT" = "" ]; then
+            WORKFLOW_COUNT=0
+          fi
           echo "workflow_count=$WORKFLOW_COUNT" >> $GITHUB_OUTPUT
 
           # Extract workflow content for review
