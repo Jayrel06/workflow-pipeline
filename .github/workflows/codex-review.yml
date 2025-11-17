@@ -32,25 +32,57 @@ jobs:
 
       - name: Detect Changed Files
         id: changes
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           echo "Detecting changed workflow files..."
-          CHANGED_FILES=$(git diff --name-only ${{ github.event.pull_request.base.sha }} ${{ github.event.pull_request.head.sha }})
-          echo "changed_files<<EOF" >> $GITHUB_OUTPUT
-          echo "$CHANGED_FILES" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
+          echo "Base ref: ${{ github.event.pull_request.base.ref }}"
+          echo "Head ref: ${{ github.head_ref }}"
 
-          # Count workflow JSON files
-          WORKFLOW_COUNT=$(echo "$CHANGED_FILES" | grep -c "\.json$" || echo "0")
-          echo "workflow_count=$WORKFLOW_COUNT" >> $GITHUB_OUTPUT
+          # Use GitHub API to get changed files (matches PR interface)
+          CHANGED_FILES=$(gh api repos/${{ github.repository }}/compare/${{ github.event.pull_request.base.ref }}...${{ github.head_ref }} --jq '.files[].filename' | tr '\n' ' ')
 
-          # Extract workflow content for review
-          echo "Extracting workflow content..."
+          echo "📝 All changed files:"
+          echo "$CHANGED_FILES"
+          echo ""
+
+          # Set changed_files output using heredoc
+          {
+            echo "changed_files<<EOF"
+            echo "$CHANGED_FILES"
+            echo "EOF"
+          } >> $GITHUB_OUTPUT
+
+          # Filter for workflow JSON files in specific directories
+          WORKFLOW_FILES=""
           for file in $CHANGED_FILES; do
-            if [[ $file == *.json ]]; then
-              echo "Found workflow: $file"
-            fi
+            # Only count JSON files in workflow output directories
+            case "$file" in
+              03-stage-2-claude-code/output/*.json|\
+              05-stage-3-codex/output/*.json|\
+              07-stage-4-copilot/output/*.json)
+                WORKFLOW_FILES="$WORKFLOW_FILES$file"$'\n'
+                echo "✅ Found workflow: $file"
+                ;;
+            esac
           done
 
+          # Set workflow_files output
+          {
+            echo "workflow_files<<EOF"
+            echo "$WORKFLOW_FILES"
+            echo "EOF"
+          } >> $GITHUB_OUTPUT
+
+          # Count workflow JSON files (filtered)
+          if [ -z "$WORKFLOW_FILES" ]; then
+            WORKFLOW_COUNT=0
+          else
+            WORKFLOW_COUNT=$(echo "$WORKFLOW_FILES" | grep -c ".json" || true)
+          fi
+          echo ""
+          echo "📊 Workflow Count: $WORKFLOW_COUNT JSON files"
+          echo "workflow_count=$WORKFLOW_COUNT" >> $GITHUB_OUTPUT
       - name: Trigger Codex Review (Comment)
         uses: actions/github-script@v7
         with:
@@ -74,6 +106,11 @@ jobs:
             **Changed Files:**
             \`\`\`
             ${{ steps.changes.outputs.changed_files }}
+            \`\`\`
+
+            **Workflow Files for Review:**
+            \`\`\`
+            ${{ steps.changes.outputs.workflow_files }}
             \`\`\`
 
             **Workflow Count:** ${{ steps.changes.outputs.workflow_count }} JSON files
