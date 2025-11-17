@@ -17,6 +17,37 @@ From config:
 
 ## Process
 
+### Step 0: Query Memory System First ⚡ **NEW**
+
+**ALWAYS check the memory system BEFORE starting implementation!**
+
+```bash
+# Check for similar workflows
+curl http://localhost:3001/api/patterns/search?q=webhook&limit=10
+
+# Search for relevant patterns
+curl http://localhost:3001/api/patterns/search?q=your-use-case&limit=10
+
+# Find workflow templates
+curl http://localhost:3001/api/prompts?category=workflow&limit=10
+
+# Review past implementations
+curl http://localhost:3001/api/github/activity?repo=workflow-pipeline&limit=20
+
+# Get specific knowledge
+curl http://localhost:3001/api/knowledge/search?q=authentication&limit=5
+```
+
+**Why?**
+- ✅ Reuse proven patterns
+- ✅ Avoid past mistakes
+- ✅ Save time with templates
+- ✅ Ensure consistency
+
+See `MEMORY-SYSTEM.md` in repo root for full API documentation.
+
+---
+
 ### Step 1: Read ALL Stage 1 Outputs
 ```bash
 # Read the complete architecture
@@ -61,6 +92,13 @@ If validation fails → Fix errors before adding more nodes
 **Continue this cycle until complete.**
 
 ### Step 3: Implement According to Spec
+
+**💡 TIP**: Before implementing each node type, check memory:
+```bash
+# Example: Before implementing HTTP Request node
+curl http://localhost:3001/api/patterns/search?q=httpRequest+node&limit=5
+```
+
 For EACH node in the implementation guide:
 
 1. **Create Node Object**:
